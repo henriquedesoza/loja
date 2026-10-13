@@ -1,0 +1,366 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextSearchPostgres", "fullTextIndex"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Autenticação (Better Auth) ----------
+
+enum Role {
+  BUYER
+  SELLER
+  ADMIN
+}
+
+model User {
+  id            String    @id
+  name          String
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  role          Role      @default(BUYER)
+  // dados públicos de vendedor (página /vendedor/[id])
+  sellerSlug    String?   @unique
+  sellerBio     String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  sessions     Session[]
+  accounts     Account[]
+  products     Product[]
+  reviews      Review[]
+  questions    Question[]
+  answers      Answer[]
+  addresses    Address[]
+  orders       Order[]
+  vendas       OrderItem[]
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Account {
+  id                   String    @id
+  accountId            String
+  providerId           String
+  userId               String
+  accessToken          String?
+  refreshToken         String?
+  idToken              String?
+  accessTokenExpiresAt DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                String?
+  password             String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+// ---------- Catálogo ----------
+
+model Category {
+  id       String     @id @default(cuid())
+  slug     String     @unique
+  name     String
+  parentId String?
+  parent   Category?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children Category[] @relation("CategoryTree")
+  products Product[]
+
+  @@index([parentId])
+}
+
+model Brand {
+  id       String    @id @default(cuid())
+  slug     String    @unique
+  name     String
+  products Product[]
+}
+
+model Product {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  title       String
+  description String
+  // preço a partir de, em centavos (BRL)
+  priceCents  Int
+  ratingAvg   Float    @default(0)
+  ratingCount Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  brandId   String
+  brand     Brand    @relation(fields: [brandId], references: [id])
+  categoryId String
+  category  Category @relation(fields: [categoryId], references: [id])
+  sellerId  String
+  seller    User     @relation(fields: [sellerId], references: [id])
+
+  images    ProductImage[]
+  variants  ProductVariant[]
+  reviews   Review[]
+  questions Question[]
+
+  @@index([categoryId])
+  @@index([brandId])
+  @@index([sellerId])
+}
+
+model ProductImage {
+  id        String  @id @default(cuid())
+  url       String
+  alt       String  @default("")
+  position  Int     @default(0)
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+}
+
+model ProductVariant {
+  id         String  @id @default(cuid())
+  sku        String  @unique
+  color      String
+  size       String
+  // preço da variação; null = usa o preço do produto
+  priceCents Int?
+  stock      Int     @default(0)
+  isActive   Boolean @default(true)
+  productId  String
+  product    Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, color, size])
+  @@index([productId])
+}
+
+model Review {
+  id        String   @id @default(cuid())
+  rating    Int
+  title     String
+  body      String
+  createdAt DateTime @default(now())
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  photos ReviewPhoto[]
+
+  @@unique([productId, userId])
+  @@index([productId])
+}
+
+model ReviewPhoto {
+  id       String @id @default(cuid())
+  url      String
+  reviewId String
+  review   Review @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  @@index([reviewId])
+}
+
+model Question {
+  id        String   @id @default(cuid())
+  body      String
+  createdAt DateTime @default(now())
+
+  productId String
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  answers   Answer[]
+
+  @@index([productId])
+}
+
+model Answer {
+  id         String   @id @default(cuid())
+  body       String
+  createdAt  DateTime @default(now())
+  questionId String
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([questionId])
+}
+
+// ---------- Etapa 2: endereços, cupons, pedidos e pagamentos ----------
+
+model Address {
+  id         String  @id @default(cuid())
+  apelido    String  @default("Casa")
+  cep        String
+  logradouro String
+  numero     String
+  complemento String?
+  bairro     String
+  cidade     String
+  uf         String
+  padrao     Boolean @default(false)
+  createdAt  DateTime @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+enum CouponType {
+  PERCENTUAL
+  FIXO
+  FRETE_GRATIS
+}
+
+model Coupon {
+  id          String      @id @default(cuid())
+  code        String      @unique
+  tipo        CouponType
+  valorCents  Int         @default(0) // percentual em bps (1000 = 10%) ou valor fixo em centavos
+  minimoCents Int         @default(0)
+  maxUsos     Int?
+  usos        Int         @default(0)
+  validade    DateTime?
+  ativo       Boolean     @default(true)
+  descricao   String      @default("")
+
+  orders Order[]
+}
+
+enum OrderStatus {
+  PENDING // aguardando pagamento
+  PAID // pagamento confirmado
+  PACKING // em separação
+  SHIPPED // enviado (com código de rastreio)
+  DELIVERED // entregue
+  CANCELLED
+}
+
+model Order {
+  id            String      @id @default(cuid())
+  codigo        String      @unique // LB-A1B2C3, exibido ao cliente
+  status        OrderStatus @default(PENDING)
+  subtotalCents Int
+  freteCents    Int
+  descontoCents Int         @default(0)
+  totalCents    Int
+  cupomCode     String?
+  // snapshot do endereço de entrega (endereço pode mudar depois)
+  cep           String
+  logradouro    String
+  numero        String
+  complemento   String?
+  bairro        String
+  cidade        String
+  uf            String
+  presente      Boolean     @default(false)
+  presenteMensagem String?
+  rastreio      String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  userId    String
+  user      User       @relation(fields: [userId], references: [id])
+  itens     OrderItem[]
+  eventos   OrderEvent[]
+  pagamento Pagamento?
+  cupom     Coupon?    @relation(fields: [cupomCode], references: [code])
+
+  @@index([userId])
+}
+
+model OrderItem {
+  id         String @id @default(cuid())
+  variantId  String // variação comprada (snapshot abaixo protege o histórico)
+  sku        String
+  titulo     String
+  cor        String
+  tamanho    String
+  imagemUrl  String?
+  precoCents Int
+  quantidade Int
+
+  orderId String
+  order   Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  sellerId String
+  seller   User   @relation(fields: [sellerId], references: [id])
+
+  @@index([orderId])
+  @@index([sellerId])
+}
+
+model OrderEvent {
+  id        String      @id @default(cuid())
+  status    OrderStatus
+  nota      String?
+  createdAt DateTime    @default(now())
+
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+}
+
+enum PaymentMethod {
+  PIX
+  CARD
+  BOLETO
+}
+
+enum PaymentStatus {
+  PENDING
+  APPROVED
+  REFUSED
+  EXPIRED
+}
+
+model Pagamento {
+  id         String         @id @default(cuid())
+  metodo     PaymentMethod
+  status     PaymentStatus  @default(PENDING)
+  valorCents Int
+  provedor  String         @default("mock") // "mercadopago" | "mock"
+  externoId  String? // id do pagamento no provedor (webhook usa isto)
+  copiaCola  String? // Pix: código copia e cola
+  qrImagem   String? // Pix: QR em base64 (provedor real)
+  vencimento DateTime?
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  orderId String @unique
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([externoId])
+}
+
+
