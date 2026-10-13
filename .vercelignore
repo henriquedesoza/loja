@@ -1,0 +1,4 @@
+# nunca enviar segredos locais no deploy (DATABASE_URL local nao vale no Vercel)
+.env
+.env.local
+.env.*.local
